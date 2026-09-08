@@ -696,6 +696,59 @@ it.layer(NodeServices.layer)("Antigravity profile preparation", (it) => {
   );
 
   it.effect(
+    "falls back to stderr when the listener is absent, rejects the URL, or is unavailable",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+        const temporaryDirectory = yield* fs.makeTempDirectoryScoped();
+        let helperCommand: ChildProcess.StandardCommand | undefined;
+        yield* prepareAntigravityProfile({ profileDirectory: temporaryDirectory }).pipe(
+          Effect.provideService(
+            ChildProcessSpawner.ChildProcessSpawner,
+            ChildProcessSpawner.make((command) => {
+              if (ChildProcess.isStandardCommand(command)) helperCommand = command;
+              return spawner.spawn(command);
+            }),
+          ),
+        );
+        expect(helperCommand).toBeDefined();
+        if (!helperCommand) return;
+        const command = helperCommand;
+        const rejected = yield* serveAntigravityAuthorizationUrlSink(() =>
+          Effect.fail(AcpErrors.AcpRequestError.internalError("The flow stopped.")),
+        );
+        const closed = yield* serveAntigravityAuthorizationUrlSink(() => Effect.void).pipe(
+          Effect.scoped,
+        );
+        for (const sink of [undefined, rejected, closed]) {
+          const child = yield* spawner.spawn(
+            ChildProcess.make(command.command, [...command.args.slice(0, -1), authorizationUrl], {
+              env: {
+                ...command.options.env,
+                ...(sink === undefined ? {} : { T3_ANTIGRAVITY_AUTH_SINK: sink }),
+              },
+              extendEnv: false,
+            }),
+          );
+          const [stdout, stderr, exitCode] = yield* Effect.all(
+            [
+              child.stdout.pipe(Stream.decodeText(), Stream.mkString),
+              child.stderr.pipe(Stream.decodeText(), Stream.mkString),
+              child.exitCode,
+            ],
+            { concurrency: "unbounded" },
+          );
+          expect(Number(exitCode)).toBe(0);
+          expect(stdout).toBe("");
+          expect(stderr).toBe(
+            `${ANTIGRAVITY_AUTH_BROWSER_MARKER}${encodeUnknownJson(authorizationUrl)}\n`,
+          );
+        }
+      }),
+  );
+
+  it.effect(
     "delivers the helper URL without stdio and exits successfully after the listener closes",
     () =>
       Effect.gen(function* () {

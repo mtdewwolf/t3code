@@ -65,12 +65,12 @@ const isAcpTransportError = Schema.is(AcpErrors.AcpTransportError);
 // Keep this source free of both colons and semicolons. EPIPE must still exit 0
 // so Python does not fall back to an OS browser after cancellation.
 const browserHelperSource =
-  `(process.env.T3_ANTIGRAVITY_AUTH_SINK&&fetch(process.env.T3_ANTIGRAVITY_AUTH_SINK,` +
+  `(report=>(process.env.T3_ANTIGRAVITY_AUTH_SINK&&fetch(process.env.T3_ANTIGRAVITY_AUTH_SINK,` +
   `Object.fromEntries([["method","POST"],["body",process.argv[1]],` +
-  `["signal",AbortSignal.timeout(5000)]])).then(()=>process.exit(0),()=>process.exit(0)))||` +
-  `process.stderr.on("error",()=>process.exit(0)).write(` +
+  `["signal",AbortSignal.timeout(5000)]])).then(response=>response.ok&&process.exit(0)||report(),report))||report())` +
+  `(()=>process.stderr.on("error",()=>process.exit(0)).write(` +
   `"${ANTIGRAVITY_AUTH_BROWSER_MARKER}"+JSON.stringify(process.argv[1])+"\\n",` +
-  `()=>process.exit(0))`;
+  `()=>process.exit(0)))`;
 const browserPreflightUrl = "https://example.invalid/t3-antigravity-browser-preflight";
 
 const removedEnvironmentKeys = new Set([
