@@ -15,9 +15,11 @@ export const AssetResource = Schema.Union([
   Schema.TaggedStruct("workspace-file", {
     threadId: ThreadId,
     path: TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH)),
+    /** Project context for previews opened before a draft thread is persisted. */
+    cwd: Schema.optionalKey(TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH))),
   }),
   // One file served in place from anywhere the environment host can read:
-  // images, videos, HTML, and PDF. An absolute path may lie outside the
+  // images, videos, HTML, PDF, and FBX models. An absolute path may lie outside the
   // workspace; a relative one resolves against the thread's workspace.
   Schema.TaggedStruct("media-file", {
     threadId: ThreadId,
@@ -175,8 +177,8 @@ export class AssetPreviewTypeValidationError extends Schema.TaggedError<AssetPre
 ) {
   override get message(): string {
     return this.resource._tag === "media-file"
-      ? "Only images, videos, HTML, and PDF files can be previewed."
-      : "Only browser documents and images can be previewed.";
+      ? "Only images, videos, HTML, PDF, and FBX files can be previewed."
+      : "Only browser documents, images, and FBX files can be previewed.";
   }
 }
 

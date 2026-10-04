@@ -2436,6 +2436,25 @@ const makeWsRpcLayer = (
                   ),
                 );
               if (Option.isNone(thread)) {
+                if (input.resource._tag === "workspace-file" && input.resource.cwd !== undefined) {
+                  const project = yield* projectionSnapshotQuery
+                    .getActiveProjectByWorkspaceRoot(input.resource.cwd)
+                    .pipe(
+                      Effect.mapError(
+                        (cause) =>
+                          new AssetWorkspaceContextResolutionError({
+                            resource: input.resource,
+                            cause,
+                          }),
+                      ),
+                    );
+                  if (Option.isSome(project)) {
+                    return yield* issueAssetUrl({
+                      resource: input.resource,
+                      workspaceRoot: project.value.workspaceRoot,
+                    });
+                  }
+                }
                 return yield* new AssetWorkspaceContextNotFoundError({
                   resource: input.resource,
                 });

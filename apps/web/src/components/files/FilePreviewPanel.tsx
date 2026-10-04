@@ -7,6 +7,7 @@ import type {
   ScopedThreadRef,
 } from "@t3tools/contracts";
 import {
+  isWorkspace3DPreviewPath,
   isWorkspaceImagePreviewPath,
   isWorkspaceVideoPreviewPath,
 } from "@t3tools/shared/filePreview";
@@ -21,7 +22,7 @@ import {
 import { mediaFileReference } from "@t3tools/client-runtime/media-reference";
 import { Code2, Eye, FolderTree, Globe2 } from "lucide-react";
 import * as Schema from "effect/Schema";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { isBrowserPreviewFile, openFileInPreview } from "~/browser/openFileInPreview";
 import { useAssetUrlRefresh, useAssetUrlState } from "~/assets/assetUrls";
@@ -78,6 +79,9 @@ import {
   setProjectFileQueryData,
   useProjectFileQuery,
 } from "./projectFilesQueryState";
+const FbxModelPreview = lazy(() =>
+  import("./FbxModelPreview").then((module) => ({ default: module.FbxModelPreview })),
+);
 
 interface FilePreviewPanelProps {
   environmentId: EnvironmentId;
@@ -373,6 +377,89 @@ function WorkspaceVideoPreview(props: {
         }}
       />
     </div>
+  );
+}
+
+function WorkspaceModelPreview(props: {
+  readonly environmentId: EnvironmentId;
+  readonly threadRef: ScopedThreadRef;
+  readonly absolutePath: string;
+  readonly workspaceRoot: string;
+  readonly name: string;
+  readonly workspaceMutationId: string | null;
+}) {
+  const insideWorkspace =
+    mediaFileReference(props.absolutePath, props.workspaceRoot).relativePath !== undefined;
+  const resource = useMemo(
+    () => ({
+      _tag: insideWorkspace ? ("workspace-file" as const) : ("media-file" as const),
+      threadId: props.threadRef.threadId,
+      path: props.absolutePath,
+      ...(insideWorkspace ? { cwd: props.workspaceRoot } : {}),
+    }),
+    [insideWorkspace, props.threadRef.threadId, props.absolutePath, props.workspaceRoot],
+  );
+  const assetUrl = useAssetUrlState(props.environmentId, resource);
+  const assetError = assetUrl._tag === "Failure" ? assetUrl.error : null;
+  useEffect(() => {
+    if (assetError !== null) console.error("FBX preview asset request failed", assetError);
+  }, [assetError]);
+  const refreshAssetUrl = useAssetUrlRefresh(props.environmentId, resource);
+  useWorkspaceMutationRefresh({
+    mutationId: props.workspaceMutationId,
+    resourceKey: JSON.stringify([props.environmentId, resource]),
+    refresh: () => {
+      void refreshAssetUrl().catch(() => undefined);
+    },
+  });
+  const revisionSuffix =
+    props.workspaceMutationId === null
+      ? ""
+      : `${assetUrl._tag === "Success" && assetUrl.url.includes("?") ? "&" : "?"}workspace-revision=${encodeURIComponent(props.workspaceMutationId)}`;
+
+  if (assetUrl._tag === "Failure") {
+    return (
+      <div
+        role="alert"
+        className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-sm text-destructive"
+      >
+        <p>
+          Unable to load this FBX file:{" "}
+          {assetUrl.error instanceof Error ? assetUrl.error.message : String(assetUrl.error)}
+        </p>
+        <button
+          type="button"
+          className="rounded-md border px-3 py-1.5 text-foreground hover:bg-muted"
+          onClick={() => {
+            void refreshAssetUrl().catch(() => undefined);
+          }}
+        >
+          Retry model preview
+        </button>
+      </div>
+    );
+  }
+  if (assetUrl._tag !== "Success") {
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground">
+        <Spinner className="size-5" />
+      </div>
+    );
+  }
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground">
+          <Spinner className="size-5" />
+        </div>
+      }
+    >
+      <FbxModelPreview
+        src={`${assetUrl.url}${revisionSuffix}`}
+        name={props.name}
+        refresh={refreshAssetUrl}
+      />
+    </Suspense>
   );
 }
 
@@ -982,6 +1069,7 @@ export default function FilePreviewPanel({
   });
   const isVideo = relativePath !== null && isWorkspaceVideoPreviewPath(relativePath);
   const isImage = relativePath !== null && !isVideo && isWorkspaceImagePreviewPath(relativePath);
+  const isModel = relativePath !== null && isWorkspace3DPreviewPath(relativePath);
   const isMedia = isImage || isVideo;
   // PDFs have no text to show; HTML has, and can toggle between page and source.
   const isPdf = relativePath !== null && isPdfPreviewFile(relativePath);
@@ -993,7 +1081,7 @@ export default function FilePreviewPanel({
     environmentId,
     cwd,
     relativePath,
-    attachment === undefined && !isMedia && !isPdf,
+    attachment === undefined && !isMedia && !isModel && !isPdf,
   );
   const [explorerOpen, setExplorerOpen] = useState(initialExplorerOpen);
   const showExplorer = shouldShowFileExplorer({
@@ -1046,6 +1134,7 @@ export default function FilePreviewPanel({
       attachment === undefined &&
       relativePath !== null &&
       !isMedia &&
+      !isModel &&
       !isPdf &&
       !selectedFilePending,
     mutationId: workspaceMutationId,
@@ -1245,6 +1334,16 @@ export default function FilePreviewPanel({
               absolutePath={absolutePath}
               workspaceRoot={cwd}
               alt={relativePath}
+              workspaceMutationId={workspaceMutationId}
+            />
+          ) : relativePath && isModel && absolutePath ? (
+            <WorkspaceModelPreview
+              key={`${environmentId}:${threadRef.threadId}:${absolutePath}`}
+              environmentId={environmentId}
+              threadRef={threadRef}
+              absolutePath={absolutePath}
+              workspaceRoot={cwd}
+              name={relativePath}
               workspaceMutationId={workspaceMutationId}
             />
           ) : relativePath && renderBrowserFile && absolutePath ? (

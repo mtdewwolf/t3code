@@ -5510,6 +5510,51 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("previews workspace FBX files before a draft thread is persisted", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const workspaceRoot = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-draft-fbx-" });
+      const project = { ...makeDefaultOrchestrationReadModel().projects[0]!, workspaceRoot };
+      yield* fileSystem.writeFileString(path.join(workspaceRoot, "model.fbx"), "FBX bytes");
+      yield* fileSystem.writeFileString(path.join(workspaceRoot, "texture.png"), "texture bytes");
+      yield* buildAppUnderTest({
+        layers: {
+          projectionSnapshotQuery: {
+            getActiveProjectByWorkspaceRoot: (cwd) =>
+              Effect.succeed(cwd === workspaceRoot ? Option.some(project) : Option.none()),
+          },
+        },
+      });
+      const wsUrl = yield* getWsServerUrl("/ws");
+      yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          Effect.gen(function* () {
+            const resource = {
+              _tag: "workspace-file" as const,
+              threadId: ThreadId.make("unpersisted-draft"),
+              path: "model.fbx",
+              cwd: workspaceRoot,
+            };
+            const issued = yield* client[WS_METHODS.assetsCreateUrl]({ resource });
+            const response = yield* HttpClient.get(issued.relativeUrl);
+            assert.equal(response.status, 200);
+            assert.equal(yield* response.text, "FBX bytes");
+            const texture = yield* HttpClient.get(
+              issued.relativeUrl.replace(/model\.fbx$/, "texture.png"),
+            );
+            assert.equal(texture.status, 200);
+            assert.equal(yield* texture.text, "texture bytes");
+            const error = yield* client[WS_METHODS.assetsCreateUrl]({
+              resource: { ...resource, cwd: path.join(workspaceRoot, "unregistered") },
+            }).pipe(Effect.flip);
+            assert.equal(error._tag, "AssetWorkspaceContextNotFoundError");
+          }),
+        ),
+      );
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("uploads image bytes through a signed URL issued by websocket rpc", () =>
     Effect.gen(function* () {
       const config = yield* buildAppUnderTest();

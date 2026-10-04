@@ -461,6 +461,91 @@ describe("AssetAccess", () => {
     }).pipe(Effect.provide(testLayer)),
   );
 
+  it.effect("serves signed workspace FBX models and sibling textures", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-asset-fbx-" });
+      const modelPath = path.join(root, "model.FBX");
+      const texturePath = path.join(root, "textures", "color.png");
+      yield* fileSystem.makeDirectory(path.dirname(texturePath));
+      yield* fileSystem.writeFileString(modelPath, "FBX model bytes");
+      yield* fileSystem.writeFileString(texturePath, "texture bytes");
+
+      const result = yield* issueAssetUrl({
+        resource: {
+          _tag: "workspace-file",
+          threadId: ThreadId.make("thread-1"),
+          path: modelPath,
+        },
+        workspaceRoot: root,
+      });
+      const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+      const separatorIndex = suffix.indexOf("/");
+      const token = suffix.slice(0, separatorIndex);
+
+      expect(yield* resolveAsset(token, suffix.slice(separatorIndex + 1))).toEqual({
+        kind: "file",
+        path: yield* fileSystem.realPath(modelPath),
+      });
+      expect(yield* resolveAsset(token, "textures/color.png")).toEqual({
+        kind: "file",
+        path: yield* fileSystem.realPath(texturePath),
+      });
+      expect(yield* resolveAsset(token, "../model.FBX")).toBeNull();
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect(
+    "resolves FBX textures from nearby texture folders without changing document assets",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-fbx-textures-" });
+        const modelDirectory = path.join(root, "Art", "World", "Models", "City");
+        const textures = path.join(root, "Art", "World", "Textures");
+        const exportTextures = path.join(modelDirectory, "tree.fbm");
+        for (const directory of [modelDirectory, textures, exportTextures]) {
+          yield* fs.makeDirectory(directory, { recursive: true });
+        }
+        for (const name of ["tree.fbx", "preview.html"]) {
+          yield* fs.writeFileString(path.join(modelDirectory, name), name);
+        }
+        for (const directory of [modelDirectory, textures, exportTextures]) {
+          yield* fs.writeFileString(path.join(directory, "bark.png"), directory);
+        }
+        yield* fs.writeFileString(path.join(textures, "leaves.png"), "leaves");
+        const tokenFor = (name: string) =>
+          issueAssetUrl({
+            workspaceRoot: root,
+            resource: {
+              _tag: "workspace-file",
+              threadId: ThreadId.make("thread-1"),
+              path: path.join(modelDirectory, name),
+            },
+          }).pipe(
+            Effect.map(
+              (asset) => asset.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length).split("/")[0]!,
+            ),
+          );
+        const token = yield* tokenFor("tree.fbx");
+        expect(yield* resolveAsset(token, "bark.png")).toMatchObject({
+          path: yield* fs.realPath(path.join(modelDirectory, "bark.png")),
+        });
+        yield* fs.remove(path.join(modelDirectory, "bark.png"));
+        expect(yield* resolveAsset(token, "bark.png")).toMatchObject({
+          path: yield* fs.realPath(path.join(exportTextures, "bark.png")),
+        });
+        expect(yield* resolveAsset(token, "leaves.png")).toMatchObject({
+          path: yield* fs.realPath(path.join(textures, "leaves.png")),
+        });
+        expect(yield* resolveAsset(token, "missing.png")).toBeNull();
+        expect(yield* resolveAsset(token, "../../Textures/leaves.png")).toBeNull();
+        expect(yield* resolveAsset(yield* tokenFor("preview.html"), "leaves.png")).toBeNull();
+      }).pipe(Effect.provide(testLayer)),
+  );
+
   it.effect("rejects workspace files outside the authorized root", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
