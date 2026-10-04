@@ -1,4 +1,4 @@
-import { BoxGeometry, Group, Mesh, MeshPhongMaterial, Texture } from "three";
+import { BoxGeometry, Group, Mesh, MeshLambertMaterial, MeshPhongMaterial, Texture } from "three";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { clearMissingModelTextures, disposeModel } from "./modelResources";
@@ -31,6 +31,31 @@ describe("model resource cleanup", () => {
     expect(material.normalMap).toBeNull();
     expect(material.map).toBe(loaded);
     expect(material.color.getHex()).toBe(0x669933);
+    expect(disposeMissing).toHaveBeenCalledTimes(1);
+    expect(disposeLoaded).not.toHaveBeenCalled();
+    disposeModel(group);
+  });
+
+  it("clears missing Lambert textures while preserving loaded maps and base colors", () => {
+    const missing = new Texture();
+    const loaded = new Texture({ width: 4, height: 4 });
+    const material = new MeshLambertMaterial({
+      color: 0x669933,
+      map: missing,
+      alphaMap: missing,
+      normalMap: loaded,
+    });
+    const version = material.version;
+    const disposeMissing = vi.spyOn(missing, "dispose");
+    const disposeLoaded = vi.spyOn(loaded, "dispose");
+    const group = new Group();
+    group.add(new Mesh(new BoxGeometry(), material), new Mesh(new BoxGeometry(), material));
+    clearMissingModelTextures(group);
+    expect(material.map).toBeNull();
+    expect(material.alphaMap).toBeNull();
+    expect(material.normalMap).toBe(loaded);
+    expect(material.color.getHex()).toBe(0x669933);
+    expect(material.version).toBeGreaterThan(version);
     expect(disposeMissing).toHaveBeenCalledTimes(1);
     expect(disposeLoaded).not.toHaveBeenCalled();
     disposeModel(group);

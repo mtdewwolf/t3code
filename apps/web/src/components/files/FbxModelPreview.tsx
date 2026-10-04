@@ -220,7 +220,7 @@ function FbxModelViewport({ src, name, onRetry }: FbxModelPreviewProps & { onRet
 
   return (
     <div
-      className="relative min-h-0 flex-1 overflow-hidden bg-zinc-950"
+      className="relative min-h-0 flex-1 overflow-hidden bg-background"
       aria-label={`3D preview of ${name}`}
     >
       <div ref={viewportRef} className="absolute inset-0" />
@@ -239,19 +239,19 @@ function FbxModelViewport({ src, name, onRetry }: FbxModelPreviewProps & { onRet
           </button>
         </div>
       ) : isLoading ? (
-        <div className="pointer-events-none absolute bottom-3 left-3 flex items-center gap-2 rounded-md bg-background/80 px-2.5 py-1.5 text-[11px] text-muted-foreground">
-          <Spinner className="size-3" />
-          Loading model…
+        <div className="pointer-events-none absolute bottom-3 left-3 flex items-center gap-2 rounded-md bg-background/80 px-2.5 py-1.5 text-2xs text-muted-foreground">
+          <Spinner size="xs" />
+          Loading modelâ€¦
         </div>
       ) : null}
       {missingTextures.length > 0 && !loadError ? (
         <Tooltip>
           <TooltipTrigger
             render={<button type="button" />}
-            className="absolute left-3 top-3 max-w-[75%] rounded-md bg-background/90 px-2.5 py-1.5 text-left text-[11px] text-muted-foreground"
+            className="absolute left-3 top-3 max-w-[75%] rounded-md bg-background/90 px-2.5 py-1.5 text-left text-2xs text-muted-foreground"
           >
             {missingTextures.length}{" "}
-            {missingTextures.length === 1 ? "texture missing" : "textures missing"} · Showing
+            {missingTextures.length === 1 ? "texture missing" : "textures missing"} Â· Showing
             available materials
           </TooltipTrigger>
           <TooltipPopup>{missingTextures.join(", ")}</TooltipPopup>
@@ -267,8 +267,8 @@ function FbxModelViewport({ src, name, onRetry }: FbxModelPreviewProps & { onRet
           <RotateCcw className="size-4" />
         </button>
       ) : null}
-      <div className="pointer-events-none absolute bottom-3 right-3 rounded-md bg-background/80 px-2.5 py-1.5 text-[11px] text-muted-foreground">
-        Drag to orbit · scroll to zoom
+      <div className="pointer-events-none absolute bottom-3 right-3 rounded-md bg-background/80 px-2.5 py-1.5 text-2xs text-muted-foreground">
+        Drag to orbit Â· scroll to zoom
       </div>
     </div>
   );

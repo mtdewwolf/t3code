@@ -5,8 +5,8 @@ import {
   PROVIDER_SEND_TURN_MAX_FILE_BYTES,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES,
-  ProjectFaviconPath,
-} from "./orchestration.ts";
+} from "./chatAttachment.ts";
+import { ProjectFaviconPath } from "./project.ts";
 import { ToolActivityNativeAppReference } from "./providerRuntime.ts";
 
 const ASSET_PATH_MAX_LENGTH = 1024;
@@ -15,14 +15,18 @@ export const AssetResource = Schema.Union([
   Schema.TaggedStruct("workspace-file", {
     threadId: ThreadId,
     path: TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH)),
-    /** Project context for previews opened before a draft thread is persisted. */
-    cwd: Schema.optionalKey(TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH))),
   }),
   // One file served in place from anywhere the environment host can read:
-  // images, videos, HTML, PDF, and FBX models. An absolute path may lie outside the
+  // images, videos, audio, HTML, PDF, and FBX models. An absolute path may lie outside the
   // workspace; a relative one resolves against the thread's workspace.
   Schema.TaggedStruct("media-file", {
     threadId: ThreadId,
+    path: TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH)),
+  }),
+  // A workspace file named by a draft that has no thread yet. The draft names
+  // its workspace root explicitly instead of resolving one from a thread.
+  Schema.TaggedStruct("draft-workspace-file", {
+    cwd: TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH)),
     path: TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH)),
   }),
   Schema.TaggedStruct("attachment", {
@@ -45,6 +49,13 @@ export const AssetResource = Schema.Union([
   }),
   Schema.TaggedStruct("native-app-icon", {
     app: ToolActivityNativeAppReference,
+  }),
+  // An upload a pull request body points at on GitHub. A private repository serves these only
+  // to a request that carries a credential, which the client has none of, so the server fetches
+  // them with the `gh` credential the repository at `cwd` authenticates with.
+  Schema.TaggedStruct("github-media", {
+    cwd: TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH)),
+    url: TrimmedNonEmptyString.check(Schema.isMaxLength(2048)),
   }),
 ]);
 export type AssetResource = typeof AssetResource.Type;
@@ -176,8 +187,10 @@ export class AssetPreviewTypeValidationError extends Schema.TaggedError<AssetPre
   },
 ) {
   override get message(): string {
-    return this.resource._tag === "media-file"
-      ? "Only images, videos, HTML, PDF, and FBX files can be previewed."
+    // Draft resources serve absolute paths through the same host-media
+    // validation as media files, so they share its message.
+    return this.resource._tag === "media-file" || this.resource._tag === "draft-workspace-file"
+      ? "Only images, videos, audio, HTML, PDF, and FBX files can be previewed."
       : "Only browser documents, images, and FBX files can be previewed.";
   }
 }
@@ -279,6 +292,15 @@ export class AssetSigningKeyLoadError extends Schema.TaggedError<AssetSigningKey
   }
 }
 
+export class AssetGitHubMediaUrlValidationError extends Schema.TaggedError<AssetGitHubMediaUrlValidationError>()(
+  "AssetGitHubMediaUrlValidationError",
+  {},
+) {
+  override get message(): string {
+    return "Only media hosted by GitHub can be fetched with a GitHub credential.";
+  }
+}
+
 export const AssetAccessError = Schema.Union([
   AssetWorkspaceContextNotFoundError,
   AssetWorkspaceContextResolutionError,
@@ -292,6 +314,7 @@ export const AssetAccessError = Schema.Union([
   AssetProjectFaviconResolutionError,
   AssetProjectFaviconInspectionError,
   AssetProjectFaviconNotFoundError,
+  AssetGitHubMediaUrlValidationError,
   AssetSigningKeyLoadError,
 ]);
 export type AssetAccessError = typeof AssetAccessError.Type;
