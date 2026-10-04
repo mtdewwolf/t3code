@@ -2,22 +2,17 @@ import {
   Box3,
   BufferAttribute,
   BufferGeometry,
+  FloatType,
   ImageLoader,
+  InterleavedBuffer,
+  InterleavedBufferAttribute,
   ObjectLoader,
   SkinnedMesh,
   Sphere,
   TextureSource,
   Vector3,
 } from "three";
-import type {
-  InterleavedBufferAttribute,
-  JSONMeta,
-  LoadingManager,
-  Object3D,
-  Texture,
-  TypedArray,
-  Vector3Tuple,
-} from "three";
+import type { JSONMeta, LoadingManager, Object3D, Texture, TypedArray, Vector3Tuple } from "three";
 
 interface ModelAttribute {
   array: TypedArray;
@@ -26,6 +21,7 @@ interface ModelAttribute {
   name: string;
   usage: BufferAttribute["usage"];
   gpuType: BufferAttribute["gpuType"];
+  interleaved?: { uuid: string; stride: number; offset: number };
 }
 
 interface ModelBounds {
@@ -58,6 +54,7 @@ export interface TransferredModel {
   geometries: ModelGeometry[];
   images: { uuid: string; url: string | Blob | null }[];
   skinnedBounds: Record<string, ModelBounds>;
+  warnings?: string[];
 }
 
 function packBounds(box: Box3, sphere: Sphere): ModelBounds {
@@ -87,16 +84,25 @@ export function packModel(model: Object3D, imageUrls: ReadonlyMap<string, string
   const packAttribute = (
     attribute: BufferAttribute | InterleavedBufferAttribute,
   ): ModelAttribute => {
-    if (!(attribute instanceof BufferAttribute))
-      throw new Error("Unsupported FBX vertex attribute.");
-    if (attribute.array.buffer instanceof ArrayBuffer) buffers.add(attribute.array.buffer);
+    const interleaved = attribute instanceof InterleavedBufferAttribute ? attribute : null;
+    const data = attribute instanceof BufferAttribute ? attribute : attribute.data;
+    if (data.array.buffer instanceof ArrayBuffer) buffers.add(data.array.buffer);
     return {
       array: attribute.array,
       itemSize: attribute.itemSize,
       normalized: attribute.normalized,
       name: attribute.name,
-      usage: attribute.usage,
-      gpuType: attribute.gpuType,
+      usage: data.usage,
+      gpuType: attribute instanceof BufferAttribute ? attribute.gpuType : FloatType,
+      ...(interleaved
+        ? {
+            interleaved: {
+              uuid: interleaved.data.uuid,
+              stride: interleaved.data.stride,
+              offset: interleaved.offset,
+            },
+          }
+        : {}),
     };
   };
   model.updateMatrixWorld(true);
@@ -108,8 +114,11 @@ export function packModel(model: Object3D, imageUrls: ReadonlyMap<string, string
         geometry.computeBoundingSphere();
         const attributes: Record<string, ModelAttribute> = {};
         for (const [name, attribute] of Object.entries(geometry.attributes)) {
-          if (!(attribute instanceof BufferAttribute))
-            throw new Error("Unsupported FBX vertex attribute.");
+          if (
+            !(attribute instanceof BufferAttribute) &&
+            !(attribute instanceof InterleavedBufferAttribute)
+          )
+            throw new Error("Unsupported model vertex attribute.");
           attributes[name] = packAttribute(attribute);
         }
         const morphAttributes: ModelGeometry["morphAttributes"] = {};
@@ -166,7 +175,25 @@ function unpackBounds(bounds: ModelBounds) {
 /** Rebuild Three objects without copying transferred geometry or redoing per-vertex bounds. */
 export function restoreModel(payload: TransferredModel) {
   const geometries: Record<string, BufferGeometry> = {};
+  const interleavedBuffers = new Map<string, InterleavedBuffer>();
   const unpackAttribute = (attribute: ModelAttribute) => {
+    if (attribute.interleaved) {
+      const { uuid, stride, offset } = attribute.interleaved;
+      let data = interleavedBuffers.get(uuid);
+      if (!data) {
+        data = new InterleavedBuffer(attribute.array, stride);
+        data.setUsage(attribute.usage);
+        interleavedBuffers.set(uuid, data);
+      }
+      const restored = new InterleavedBufferAttribute(
+        data,
+        attribute.itemSize,
+        offset,
+        attribute.normalized,
+      );
+      restored.name = attribute.name;
+      return restored;
+    }
     const restored = new BufferAttribute(attribute.array, attribute.itemSize, attribute.normalized);
     restored.name = attribute.name;
     restored.setUsage(attribute.usage);
@@ -180,7 +207,12 @@ export function restoreModel(payload: TransferredModel) {
     for (const [name, attribute] of Object.entries(packed.attributes)) {
       geometry.setAttribute(name, unpackAttribute(attribute));
     }
-    if (packed.index) geometry.setIndex(unpackAttribute(packed.index));
+    if (packed.index) {
+      const index = unpackAttribute(packed.index);
+      if (!(index instanceof BufferAttribute))
+        throw new Error("Unsupported model index attribute.");
+      geometry.setIndex(index);
+    }
     for (const [name, attributes] of Object.entries(packed.morphAttributes)) {
       geometry.morphAttributes[name as keyof BufferGeometry["morphAttributes"]] =
         attributes.map(unpackAttribute);

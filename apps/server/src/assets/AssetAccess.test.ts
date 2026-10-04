@@ -511,39 +511,97 @@ describe("AssetAccess", () => {
     }).pipe(Effect.provide(testLayer)),
   );
 
-  it.effect("serves signed workspace FBX models and sibling textures", () =>
-    Effect.gen(function* () {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-asset-fbx-" });
-      const modelPath = path.join(root, "model.FBX");
-      const texturePath = path.join(root, "textures", "color.png");
-      yield* fileSystem.makeDirectory(path.dirname(texturePath));
-      yield* fileSystem.writeFileString(modelPath, "FBX model bytes");
-      yield* fileSystem.writeFileString(texturePath, "texture bytes");
+  it.effect.each(["FBX", "GLB", "gltf", "obj", "stl", "ply"])(
+    "serves signed workspace %s models and sibling textures",
+    (extension) =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-asset-fbx-" });
+        const modelPath = path.join(root, `model.${extension}`);
+        const texturePath = path.join(root, "textures", "color.png");
+        yield* fileSystem.makeDirectory(path.dirname(texturePath));
+        yield* fileSystem.writeFileString(modelPath, "FBX model bytes");
+        yield* fileSystem.writeFileString(texturePath, "texture bytes");
 
-      const result = yield* issueAssetUrl({
-        resource: {
-          _tag: "workspace-file",
-          threadId: ThreadId.make("thread-1"),
-          path: modelPath,
-        },
-        workspaceRoot: root,
-      });
-      const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
-      const separatorIndex = suffix.indexOf("/");
-      const token = suffix.slice(0, separatorIndex);
+        const result = yield* issueAssetUrl({
+          resource: {
+            _tag: "workspace-file",
+            threadId: ThreadId.make("thread-1"),
+            path: modelPath,
+          },
+          workspaceRoot: root,
+        });
+        const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+        const separatorIndex = suffix.indexOf("/");
+        const token = suffix.slice(0, separatorIndex);
 
-      expect(yield* resolveAsset(token, suffix.slice(separatorIndex + 1))).toEqual({
-        kind: "file",
-        path: yield* fileSystem.realPath(modelPath),
-      });
-      expect(yield* resolveAsset(token, "textures/color.png")).toEqual({
-        kind: "file",
-        path: yield* fileSystem.realPath(texturePath),
-      });
-      expect(yield* resolveAsset(token, "../model.FBX")).toBeNull();
-    }).pipe(Effect.provide(testLayer)),
+        expect(yield* resolveAsset(token, suffix.slice(separatorIndex + 1))).toEqual({
+          kind: "file",
+          path: yield* fileSystem.realPath(modelPath),
+        });
+        expect(yield* resolveAsset(token, "textures/color.png")).toEqual({
+          kind: "file",
+          path: yield* fileSystem.realPath(texturePath),
+        });
+        expect(yield* resolveAsset(token, "../model.FBX")).toBeNull();
+      }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect(
+    "serves model buffers and material libraries for thread, draft, and external host models",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-model-assets-" });
+        const workspaceRoot = path.join(root, "workspace");
+        const modelDirectory = path.join(root, "models");
+        yield* fs.makeDirectory(workspaceRoot);
+        yield* fs.makeDirectory(modelDirectory);
+        const modelPath = path.join(modelDirectory, "model.gltf");
+        for (const name of ["model.gltf", "mesh.bin", "colors.mtl", "texture.png", "secret.txt"]) {
+          yield* fs.writeFileString(path.join(modelDirectory, name), name);
+        }
+        for (const resource of [
+          {
+            _tag: "workspace-file" as const,
+            threadId: ThreadId.make("thread-1"),
+            path: "model.gltf",
+          },
+          { _tag: "draft-workspace-file" as const, cwd: modelDirectory, path: "model.gltf" },
+          { _tag: "media-file" as const, threadId: ThreadId.make("thread-1"), path: modelPath },
+          { _tag: "draft-workspace-file" as const, cwd: workspaceRoot, path: modelPath },
+        ]) {
+          const asset = yield* issueAssetUrl({
+            resource,
+            workspaceRoot: resource.path === modelPath ? workspaceRoot : modelDirectory,
+          });
+          const token = asset.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length).split("/")[0]!;
+          for (const name of ["model.gltf", "mesh.bin", "colors.mtl", "texture.png"]) {
+            expect(yield* resolveAsset(token, name)).toMatchObject({
+              kind: "file",
+              path: yield* fs.realPath(path.join(modelDirectory, name)),
+            });
+          }
+          expect(yield* resolveAsset(token, "secret.txt")).toBeNull();
+          expect(yield* resolveAsset(token, "../models/mesh.bin")).toBeNull();
+        }
+        yield* fs.writeFileString(path.join(modelDirectory, "report.html"), "<html></html>");
+        const document = yield* issueAssetUrl({
+          resource: {
+            _tag: "workspace-file",
+            threadId: ThreadId.make("thread-1"),
+            path: "report.html",
+          },
+          workspaceRoot: modelDirectory,
+        });
+        const documentToken = document.relativeUrl
+          .slice(`${ASSET_ROUTE_PREFIX}/`.length)
+          .split("/")[0]!;
+        expect(yield* resolveAsset(documentToken, "mesh.bin")).toBeNull();
+        expect(yield* resolveAsset(documentToken, "colors.mtl")).toBeNull();
+      }).pipe(Effect.provide(testLayer)),
   );
 
   it.effect("previews draft FBX files and sibling textures without a persisted thread", () =>

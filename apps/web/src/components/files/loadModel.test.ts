@@ -1,17 +1,17 @@
 import { Group } from "three";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import { parseFbxInWorker } from "./loadFbxModel";
-import type { FbxWorkerRequest, FbxWorkerResponse } from "./fbx.worker";
+import { parseModelInWorker } from "./loadModel";
+import type { ModelWorkerRequest, ModelWorkerResponse } from "./model.worker";
 
 class TestWorker extends EventTarget {
   static instances: TestWorker[] = [];
   terminate = vi.fn();
-  request: FbxWorkerRequest | null = null;
+  request: ModelWorkerRequest | null = null;
   constructor() {
     super();
     TestWorker.instances.push(this);
   }
-  postMessage(request: FbxWorkerRequest, transfer: ArrayBuffer[]) {
+  postMessage(request: ModelWorkerRequest, transfer: ArrayBuffer[]) {
     this.request = structuredClone(request, { transfer });
   }
 }
@@ -22,11 +22,12 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-describe("FBX worker ownership", () => {
+describe("Model worker ownership", () => {
   it("transfers input ownership and terminates after successful parsing", async () => {
     const bytes = new Uint8Array([1, 2, 3]).buffer;
-    const result = parseFbxInWorker(
+    const result = parseModelInWorker(
       bytes,
+      "fbx",
       "https://host.test/assets/",
       new AbortController().signal,
     );
@@ -40,7 +41,7 @@ describe("FBX worker ownership", () => {
       skinnedBounds: {},
     };
     worker.dispatchEvent(
-      new MessageEvent<FbxWorkerResponse>("message", { data: { type: "loaded", model } }),
+      new MessageEvent<ModelWorkerResponse>("message", { data: { type: "loaded", model } }),
     );
     await expect(result).resolves.toBe(model);
     expect(worker.terminate).toHaveBeenCalledTimes(1);
@@ -48,14 +49,14 @@ describe("FBX worker ownership", () => {
 
   it("stops an in-flight parse immediately on cancellation", async () => {
     const controller = new AbortController();
-    const result = parseFbxInWorker(new ArrayBuffer(8), "", controller.signal);
+    const result = parseModelInWorker(new ArrayBuffer(8), "fbx", "", controller.signal);
     const rejected = expect(result).rejects.toMatchObject({ name: "AbortError" });
     const worker = TestWorker.instances[0]!;
     controller.abort();
     await rejected;
     expect(worker.terminate).toHaveBeenCalledTimes(1);
     worker.dispatchEvent(
-      new MessageEvent<FbxWorkerResponse>("message", {
+      new MessageEvent<ModelWorkerResponse>("message", {
         data: { type: "error", message: "Late result" },
       }),
     );
@@ -66,18 +67,18 @@ describe("FBX worker ownership", () => {
   it("does not start a worker for an already cancelled load", async () => {
     const controller = new AbortController();
     controller.abort();
-    await expect(parseFbxInWorker(new ArrayBuffer(8), "", controller.signal)).rejects.toMatchObject(
-      { name: "AbortError" },
-    );
+    await expect(
+      parseModelInWorker(new ArrayBuffer(8), "fbx", "", controller.signal),
+    ).rejects.toMatchObject({ name: "AbortError" });
     expect(TestWorker.instances).toHaveLength(0);
   });
 
   it("preserves parser errors and releases the worker", async () => {
-    const result = parseFbxInWorker(new ArrayBuffer(8), "", new AbortController().signal);
+    const result = parseModelInWorker(new ArrayBuffer(8), "fbx", "", new AbortController().signal);
     const rejected = expect(result).rejects.toThrow("Invalid FBX header");
     const worker = TestWorker.instances[0]!;
     worker.dispatchEvent(
-      new MessageEvent<FbxWorkerResponse>("message", {
+      new MessageEvent<ModelWorkerResponse>("message", {
         data: { type: "error", message: "Invalid FBX header" },
       }),
     );
@@ -86,7 +87,7 @@ describe("FBX worker ownership", () => {
   });
 
   it.each(["error", "messageerror"])("recovers from a worker %s", async (type) => {
-    const result = parseFbxInWorker(new ArrayBuffer(8), "", new AbortController().signal);
+    const result = parseModelInWorker(new ArrayBuffer(8), "fbx", "", new AbortController().signal);
     const rejected = expect(result).rejects.toThrow();
     const worker = TestWorker.instances[0]!;
     if (type === "error")

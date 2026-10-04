@@ -73,7 +73,35 @@ export function decodeFilePreviewText(bytes: Uint8Array, truncated = false) {
 
 export const WORKSPACE_BROWSER_PREVIEW_EXTENSIONS = [".htm", ".html", ".pdf"] as const;
 
-export const WORKSPACE_3D_PREVIEW_EXTENSIONS = [".fbx"] as const;
+export const WORKSPACE_3D_PREVIEW_EXTENSIONS = [
+  ".fbx",
+  ".glb",
+  ".gltf",
+  ".obj",
+  ".stl",
+  ".ply",
+] as const;
+
+export type ModelPreviewFormat = "fbx" | "gltf" | "obj" | "stl" | "ply";
+
+export function modelPreviewFormat(path: string): ModelPreviewFormat | null {
+  const extension = path.slice(path.lastIndexOf(".")).toLowerCase();
+  switch (extension) {
+    case ".fbx":
+      return "fbx";
+    case ".glb":
+    case ".gltf":
+      return "gltf";
+    case ".obj":
+      return "obj";
+    case ".stl":
+      return "stl";
+    case ".ply":
+      return "ply";
+    default:
+      return null;
+  }
+}
 
 export const WORKSPACE_IMAGE_PREVIEW_EXTENSIONS = [
   ".avif",
@@ -102,6 +130,11 @@ const HOST_PREVIEW_MIME_TYPE_BY_EXTENSION = new Map([
   [".html", "text/html"],
   [".pdf", "application/pdf"],
   [".fbx", "application/octet-stream"],
+  [".glb", "model/gltf-binary"],
+  [".gltf", "model/gltf+json"],
+  [".obj", "model/obj"],
+  [".stl", "model/stl"],
+  [".ply", "application/octet-stream"],
 ]);
 
 const AUDIO_MIME_TYPE_BY_EXTENSION = new Map([
@@ -131,7 +164,7 @@ export function mediaMimeTypeFromExtension(extension: string): string | null {
   );
 }
 
-/** Files served from anywhere on the host: media, audio, documents, and FBX models. */
+/** Files served from anywhere on the host: media, audio, documents, and 3D models. */
 export function hostPreviewMimeTypeFromExtension(extension: string): string | null {
   if (!/^\.[a-z0-9]+$/i.test(extension)) return null;
   return (
@@ -192,7 +225,7 @@ export function isWorkspaceVideoPreviewPath(path: string): boolean {
 }
 
 export function isWorkspace3DPreviewPath(path: string): boolean {
-  return hasPreviewExtension(path, WORKSPACE_3D_PREVIEW_EXTENSIONS);
+  return modelPreviewFormat(path) !== null;
 }
 
 export function isWorkspacePreviewEntryPath(path: string): boolean {

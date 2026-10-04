@@ -95,8 +95,8 @@ import {
   useProjectFileQuery,
 } from "./projectFilesQueryState";
 
-const FbxModelPreview = lazy(() =>
-  import("./FbxModelPreview").then((module) => ({ default: module.FbxModelPreview })),
+const ModelPreview = lazy(() =>
+  import("./ModelPreview").then((module) => ({ default: module.ModelPreview })),
 );
 
 interface FilePreviewPanelProps {
@@ -357,7 +357,7 @@ function WorkspaceModelPreview(props: {
   const assetUrl = useAssetUrlState(props.environmentId, resource);
   const assetError = assetUrl._tag === "Failure" ? assetUrl.error : null;
   useEffect(() => {
-    if (assetError !== null) console.error("FBX preview asset request failed", assetError);
+    if (assetError !== null) console.error("Model preview asset request failed", assetError);
   }, [assetError]);
   const refreshAssetUrl = useAssetUrlRefresh(props.environmentId, resource);
   useWorkspaceMutationRefresh({
@@ -379,7 +379,7 @@ function WorkspaceModelPreview(props: {
         className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-sm text-destructive"
       >
         <p>
-          Unable to load this FBX file:{" "}
+          Unable to load this model:{" "}
           {assetUrl.error instanceof Error ? assetUrl.error.message : String(assetUrl.error)}
         </p>
         <button
@@ -409,7 +409,7 @@ function WorkspaceModelPreview(props: {
         </div>
       }
     >
-      <FbxModelPreview
+      <ModelPreview
         src={`${assetUrl.url}${revisionSuffix}`}
         name={props.name}
         refresh={async () => {

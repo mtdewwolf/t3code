@@ -4,9 +4,12 @@ import {
   BoxGeometry,
   BufferAttribute,
   Group,
+  InterleavedBuffer,
+  InterleavedBufferAttribute,
   LoadingManager,
   Mesh,
   MeshPhongMaterial,
+  MeshStandardMaterial,
   NumberKeyframeTrack,
   RepeatWrapping,
   Skeleton,
@@ -54,7 +57,38 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("FBX model transfer", () => {
+describe("model transfer", () => {
+  it("transfers interleaved glTF attributes without copying or losing stride and offsets", () => {
+    const geometry = new BoxGeometry();
+    const data = new InterleavedBuffer(
+      new Float32Array([0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1]),
+      6,
+    );
+    geometry.setIndex(null);
+    geometry.deleteAttribute("uv");
+    geometry.clearGroups();
+    geometry.setAttribute("position", new InterleavedBufferAttribute(data, 3, 0));
+    geometry.setAttribute("normal", new InterleavedBufferAttribute(data, 3, 3));
+    const { payload, transfer } = packModel(
+      new Mesh(geometry, new MeshStandardMaterial({ metalness: 0.2, roughness: 0.7 })),
+      new Map(),
+    );
+    expect(transfer).toHaveLength(1);
+    const received = structuredClone(payload, { transfer });
+    const { model } = restoreModel(received);
+    const mesh = model as Mesh;
+    const position = mesh.geometry.getAttribute("position") as InterleavedBufferAttribute;
+    const normal = mesh.geometry.getAttribute("normal") as InterleavedBufferAttribute;
+    expect(position.data).toBe(normal.data);
+    expect(position.data.array.buffer).toBe(
+      received.geometries[0]!.attributes.position!.array.buffer,
+    );
+    expect(position.data.stride).toBe(6);
+    expect(position.getX(1)).toBe(1);
+    expect(normal.getZ(2)).toBe(1);
+    expect((mesh.material as MeshStandardMaterial).roughness).toBe(0.7);
+    disposeModel(model);
+  });
   it("shares geometry without copying and preserves attributes, morphs, transforms and materials", () => {
     const geometry = new BoxGeometry();
     geometry.setAttribute("color", new BufferAttribute(new Uint8Array(24 * 3).fill(128), 3, true));

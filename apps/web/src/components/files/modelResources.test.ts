@@ -1,9 +1,41 @@
-import { BoxGeometry, Group, Mesh, MeshLambertMaterial, MeshPhongMaterial, Texture } from "three";
+import {
+  BoxGeometry,
+  Group,
+  Mesh,
+  MeshLambertMaterial,
+  MeshPhongMaterial,
+  MeshPhysicalMaterial,
+  Texture,
+} from "three";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { clearMissingModelTextures, disposeModel } from "./modelResources";
 
 describe("model resource cleanup", () => {
+  it("clears missing glTF PBR texture maps while retaining material properties and loaded sources", () => {
+    const missing = new Texture();
+    const loaded = new Texture({ width: 4, height: 4 });
+    const material = new MeshPhysicalMaterial({
+      color: 0x669933,
+      map: loaded,
+      metalnessMap: missing,
+      roughnessMap: missing,
+      clearcoatNormalMap: missing,
+      metalness: 0.3,
+      roughness: 0.6,
+    });
+    const disposeMissing = vi.spyOn(missing, "dispose");
+    const model = new Mesh(new BoxGeometry(), material);
+    clearMissingModelTextures(model);
+    expect(material.map).toBe(loaded);
+    expect(material.metalnessMap).toBeNull();
+    expect(material.roughnessMap).toBeNull();
+    expect(material.clearcoatNormalMap).toBeNull();
+    expect(material.metalness).toBe(0.3);
+    expect(material.roughness).toBe(0.6);
+    expect(disposeMissing).toHaveBeenCalledTimes(1);
+    disposeModel(model);
+  });
   it("releases shared geometry, materials, and textures once", () => {
     const geometry = new BoxGeometry();
     const texture = new Texture();

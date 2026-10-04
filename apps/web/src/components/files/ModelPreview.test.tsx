@@ -35,8 +35,8 @@ vi.mock("three", async (importOriginal) => {
     },
   };
 });
-vi.mock("./loadFbxModel", () => ({
-  parseFbxInWorker: async () => mocks.parse(),
+vi.mock("./loadModel", () => ({
+  parseModelInWorker: async () => mocks.parse(),
 }));
 vi.mock("./modelTransfer", () => ({
   restoreModel: (model: import("three").Object3D) => ({
@@ -60,7 +60,7 @@ vi.mock("~/components/ui/tooltip", () => ({
   TooltipPopup: ({ children }: { children: ReactNode }) => <span>{children}</span>,
 }));
 
-import { FbxModelPreview } from "./FbxModelPreview";
+import { ModelPreview } from "./ModelPreview";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -85,7 +85,7 @@ const createModel = () => new Mesh(new BoxGeometry(), new MeshPhongMaterial());
 
 async function mount(url = src, strict = false) {
   await act(async () => {
-    const preview = <FbxModelPreview src={url} name="tree.fbx" />;
+    const preview = <ModelPreview src={url} name="tree.fbx" />;
     surface = create(strict ? <StrictMode>{preview}</StrictMode> : preview, {
       createNodeMock: (element) => (element.type === "div" ? viewport : null),
     });
@@ -94,7 +94,7 @@ async function mount(url = src, strict = false) {
 
 async function switchFile(url: string) {
   await act(async () => {
-    surface!.update(<FbxModelPreview src={url} name="model.fbx" />);
+    surface!.update(<ModelPreview src={url} name="model.fbx" />);
   });
 }
 
@@ -150,7 +150,17 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-describe("FBX viewer lifecycle", () => {
+describe("model viewer lifecycle", () => {
+  it("shows missing-material warnings without hiding loaded geometry", async () => {
+    const model = Object.assign(createModel(), {
+      warnings: ["Material library missing: colors.mtl. Showing available materials."],
+    });
+    mocks.parse.mockReturnValueOnce(model);
+    await mount();
+    expect(text()).toContain("Material library missing: colors.mtl");
+    expect(mocks.canvases.size).toBe(1);
+    expect(surface!.root.findAllByProps({ role: "alert" })).toHaveLength(0);
+  });
   it("keeps one live viewer after StrictMode replays setup and cleanup", async () => {
     await mount(src, true);
     expect(fetchFile.mock.calls[0]![1]!.signal!.aborted).toBe(true);
@@ -181,7 +191,7 @@ describe("FBX viewer lifecycle", () => {
   it("resets the loading and error UI when changing files", async () => {
     fetchFile.mockResolvedValueOnce(new Response("missing", { status: 404 }));
     await mount();
-    expect(text()).toContain("Could not load this FBX file (404)");
+    expect(text()).toContain("Could not load this model (404)");
     const pending = deferred<Response>();
     fetchFile.mockImplementationOnce(() => pending.promise);
     await switchFile(`${src}?next=1`);

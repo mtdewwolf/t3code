@@ -14,24 +14,25 @@ import type { Object3D } from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { useEffect, useRef, useState } from "react";
 import { RotateCcw } from "lucide-react";
+import { modelPreviewFormat } from "@t3tools/shared/filePreview";
 
 import { Spinner } from "~/components/ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { fitModelCamera } from "./modelCamera";
 import { clearMissingModelTextures, disposeModel } from "./modelResources";
-import { parseFbxInWorker } from "./loadFbxModel";
+import { parseModelInWorker } from "./loadModel";
 import { restoreModel } from "./modelTransfer";
 
-interface FbxModelPreviewProps {
+interface ModelPreviewProps {
   readonly src: string;
   readonly name: string;
   readonly refresh?: () => Promise<void>;
 }
 
-export function FbxModelPreview(props: FbxModelPreviewProps) {
+export function ModelPreview(props: ModelPreviewProps) {
   const [attempt, setAttempt] = useState(0);
   return (
-    <FbxModelViewport
+    <ModelViewport
       key={`${props.src}:${attempt}`}
       {...props}
       onRetry={() => {
@@ -42,11 +43,12 @@ export function FbxModelPreview(props: FbxModelPreviewProps) {
   );
 }
 
-function FbxModelViewport({ src, name, onRetry }: FbxModelPreviewProps & { onRetry: () => void }) {
+function ModelViewport({ src, name, onRetry }: ModelPreviewProps & { onRetry: () => void }) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [missingTextures, setMissingTextures] = useState<ReadonlyArray<string>>([]);
+  const [warnings, setWarnings] = useState<ReadonlyArray<string>>([]);
   const resetViewRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
@@ -109,7 +111,7 @@ function FbxModelViewport({ src, name, onRetry }: FbxModelPreviewProps & { onRet
       }
       failedTextures.add(fileName);
       setMissingTextures([...failedTextures]);
-      console.warn("FBX texture could not be loaded", fileName);
+      console.warn("Model texture could not be loaded", fileName);
     };
     const onContextLost = (event: Event) => {
       event.preventDefault();
@@ -142,18 +144,27 @@ function FbxModelViewport({ src, name, onRetry }: FbxModelPreviewProps & { onRet
     void (async () => {
       try {
         const response = await fetch(src, { signal: controller.signal });
-        if (!response.ok) throw new Error(`Could not load this FBX file (${response.status}).`);
+        if (!response.ok) throw new Error(`Could not load this model (${response.status}).`);
         const bytes = await response.arrayBuffer();
         if (disposed) return;
         const basePath = new URL(".", src).href;
-        const transferred = await parseFbxInWorker(bytes, basePath, controller.signal);
+        const format = modelPreviewFormat(name);
+        if (!format) throw new Error("This model format is not supported.");
+        const transferred = await parseModelInWorker(
+          bytes,
+          format,
+          basePath,
+          controller.signal,
+          revision,
+        );
         if (disposed) return;
+        setWarnings(transferred.warnings ?? []);
         const { model: loaded, loadTextures } = restoreModel(transferred);
 
         model = loaded;
         const bounds = new Box3().setFromObject(loaded);
         if (bounds.isEmpty() || ![...bounds.min, ...bounds.max].every(Number.isFinite)) {
-          throw new Error("This FBX file does not contain a valid visible model.");
+          throw new Error("This file does not contain a valid visible model.");
         }
         const center = bounds.getCenter(new Vector3());
         const centeredModel = new Group();
@@ -204,9 +215,9 @@ function FbxModelViewport({ src, name, onRetry }: FbxModelPreviewProps & { onRet
         setIsLoading(false);
       } catch (error) {
         if (disposed || controller.signal.aborted) return;
-        console.error("FBX model loading failed", error);
+        console.error("Model loading failed", error);
         release();
-        setLoadError(error instanceof Error ? error.message : "Could not open this FBX file.");
+        setLoadError(error instanceof Error ? error.message : "Could not open this model.");
         setIsLoading(false);
       }
     })();
@@ -216,7 +227,7 @@ function FbxModelViewport({ src, name, onRetry }: FbxModelPreviewProps & { onRet
       controller.abort();
       release();
     };
-  }, [src]);
+  }, [src, name]);
 
   return (
     <div
@@ -256,6 +267,14 @@ function FbxModelViewport({ src, name, onRetry }: FbxModelPreviewProps & { onRet
           </TooltipTrigger>
           <TooltipPopup>{missingTextures.join(", ")}</TooltipPopup>
         </Tooltip>
+      ) : null}
+      {warnings.length > 0 && !loadError ? (
+        <div
+          role="status"
+          className="absolute bottom-12 left-3 max-w-[75%] rounded-md bg-background/90 px-2.5 py-1.5 text-2xs text-muted-foreground"
+        >
+          {warnings.join(" ")}
+        </div>
       ) : null}
       {!isLoading && !loadError ? (
         <button

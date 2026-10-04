@@ -1,4 +1,4 @@
-import { MeshLambertMaterial, MeshPhongMaterial, Texture } from "three";
+import { Texture } from "three";
 import type { BufferGeometry, Material, Object3D, Skeleton } from "three";
 
 function collectModelResources(model: Object3D) {
@@ -43,22 +43,9 @@ export function clearMissingModelTextures(model: Object3D) {
   const { materials } = collectModelResources(model);
   const missing = new Set<Texture>();
   for (const material of materials) {
-    if (!(material instanceof MeshPhongMaterial) && !(material instanceof MeshLambertMaterial))
-      continue;
-    for (const slot of [
-      "map",
-      "alphaMap",
-      "normalMap",
-      "bumpMap",
-      "specularMap",
-      "emissiveMap",
-      "lightMap",
-      "aoMap",
-      "envMap",
-    ] as const) {
-      const texture = material[slot];
-      if (texture && !texture.image) {
-        material[slot] = null;
+    for (const [slot, texture] of Object.entries(material)) {
+      if (texture instanceof Texture && !texture.image) {
+        Reflect.set(material, slot, null);
         material.needsUpdate = true;
         missing.add(texture);
       }
