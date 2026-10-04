@@ -129,6 +129,10 @@ function installElectronRuntime(electronDir, version) {
     ]);
     if (hostPlatform === "darwin") {
       runChecked("ditto", ["-x", "-k", zipPath, NodePath.join(electronDir, "dist")]);
+    } else if (hostPlatform === "win32") {
+      const runtimeDir = NodePath.join(electronDir, "dist");
+      NodeFS.mkdirSync(runtimeDir, { recursive: true });
+      runChecked("tar.exe", ["-xf", zipPath, "-C", runtimeDir]);
     } else {
       runChecked("python3", [
         "-c",

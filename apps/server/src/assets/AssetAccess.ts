@@ -17,7 +17,9 @@ import {
 import {
   hostPreviewMimeTypeFromExtension,
   isWorkspaceImagePreviewPath,
+  isWorkspace3DPreviewPath,
   isWorkspacePreviewEntryPath,
+  WORKSPACE_3D_PREVIEW_EXTENSIONS,
   WORKSPACE_BROWSER_PREVIEW_EXTENSIONS,
   WORKSPACE_IMAGE_PREVIEW_EXTENSIONS,
 } from "@t3tools/shared/filePreview";
@@ -67,6 +69,7 @@ const INLINE_DOCUMENT_MIME_TYPES: Record<string, string> = {
   htm: "text/html",
 };
 const PREVIEW_ASSET_EXTENSIONS = new Set([
+  ...WORKSPACE_3D_PREVIEW_EXTENSIONS,
   ...WORKSPACE_BROWSER_PREVIEW_EXTENSIONS,
   ...WORKSPACE_IMAGE_PREVIEW_EXTENSIONS,
   ".css",
@@ -84,6 +87,7 @@ const AssetClaimsSchema = Schema.Union([
     kind: Schema.Literal("workspace-file"),
     workspaceRoot: Schema.String,
     baseRelativePath: Schema.String,
+    modelRelativePath: Schema.optionalKey(Schema.String),
     expiresAt: Schema.Number,
   }),
   Schema.Struct({
@@ -412,6 +416,9 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
             kind: "workspace-file",
             workspaceRoot: canonicalWorkspaceRoot,
             baseRelativePath: path.dirname(resolved.relativePath),
+            ...(isWorkspace3DPreviewPath(resolved.relativePath)
+              ? { modelRelativePath: resolved.relativePath }
+              : {}),
             expiresAt,
           };
       fileName = path.basename(resolved.relativePath);
@@ -731,9 +738,42 @@ export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
   }
   const joinedRelativePath =
     claims.baseRelativePath === "." ? decodedPath : path.join(claims.baseRelativePath, decodedPath);
-  const workspaceFile = yield* resolveCanonicalWorkspaceFileForRequest({
+  let workspaceFile = yield* resolveCanonicalWorkspaceFileForRequest({
     workspaceRoot: claims.workspaceRoot,
     relativePath: joinedRelativePath,
   });
+  // FBX exporters often leave only texture basenames. Check nearby export and
+  // texture folders without scanning the workspace or changing document URLs.
+  if (
+    !workspaceFile &&
+    claims.modelRelativePath &&
+    segments.length === 1 &&
+    isWorkspaceImagePreviewPath(decodedPath)
+  ) {
+    const modelDirectory = path.dirname(claims.modelRelativePath);
+    const candidates = [
+      path.join(
+        modelDirectory,
+        `${path.basename(claims.modelRelativePath, path.extname(claims.modelRelativePath))}.fbm`,
+        decodedPath,
+      ),
+    ];
+    let directory = modelDirectory;
+    while (true) {
+      for (const textureDirectory of ["Textures", "textures"]) {
+        candidates.push(path.join(directory, textureDirectory, decodedPath));
+      }
+      const parent = path.dirname(directory);
+      if (parent === directory) break;
+      directory = parent;
+    }
+    for (const relativePath of candidates) {
+      workspaceFile = yield* resolveCanonicalWorkspaceFileForRequest({
+        workspaceRoot: claims.workspaceRoot,
+        relativePath,
+      });
+      if (workspaceFile) break;
+    }
+  }
   return workspaceFile ? ({ kind: "file", path: workspaceFile } satisfies ResolvedAsset) : null;
 });

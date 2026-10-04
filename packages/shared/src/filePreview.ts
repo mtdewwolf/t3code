@@ -2,6 +2,8 @@ import { videoMimeType } from "./video.ts";
 
 export const WORKSPACE_BROWSER_PREVIEW_EXTENSIONS = [".htm", ".html", ".pdf"] as const;
 
+export const WORKSPACE_3D_PREVIEW_EXTENSIONS = [".fbx"] as const;
+
 export const WORKSPACE_IMAGE_PREVIEW_EXTENSIONS = [
   ".avif",
   ".gif",
@@ -24,10 +26,11 @@ const IMAGE_MIME_TYPE_BY_EXTENSION = new Map([
   [".webp", "image/webp"],
 ]);
 
-const BROWSER_MIME_TYPE_BY_EXTENSION = new Map([
+const HOST_PREVIEW_MIME_TYPE_BY_EXTENSION = new Map([
   [".htm", "text/html"],
   [".html", "text/html"],
   [".pdf", "application/pdf"],
+  [".fbx", "application/octet-stream"],
 ]);
 
 /** Classifies a literal filesystem extension, without URL decoding or suffix removal. */
@@ -39,12 +42,12 @@ export function mediaMimeTypeFromExtension(extension: string): string | null {
   );
 }
 
-/** Files the server serves in place from anywhere on its host: media plus browser documents. */
+/** Files served from anywhere on the host: media, documents, and FBX models. */
 export function hostPreviewMimeTypeFromExtension(extension: string): string | null {
   if (!/^\.[a-z0-9]+$/i.test(extension)) return null;
   return (
     mediaMimeTypeFromExtension(extension) ??
-    BROWSER_MIME_TYPE_BY_EXTENSION.get(extension.toLowerCase()) ??
+    HOST_PREVIEW_MIME_TYPE_BY_EXTENSION.get(extension.toLowerCase()) ??
     null
   );
 }
@@ -98,6 +101,14 @@ export function isWorkspaceVideoPreviewPath(path: string): boolean {
   return videoMimeType({ name: path, mimeType: "" }) !== null;
 }
 
+export function isWorkspace3DPreviewPath(path: string): boolean {
+  return hasPreviewExtension(path, WORKSPACE_3D_PREVIEW_EXTENSIONS);
+}
+
 export function isWorkspacePreviewEntryPath(path: string): boolean {
-  return isWorkspaceBrowserPreviewPath(path) || isWorkspaceImagePreviewPath(path);
+  return (
+    isWorkspaceBrowserPreviewPath(path) ||
+    isWorkspaceImagePreviewPath(path) ||
+    isWorkspace3DPreviewPath(path)
+  );
 }
