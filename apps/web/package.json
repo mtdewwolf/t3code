@@ -61,6 +61,7 @@
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.4.0",
     "three": "^0.186.1",
+    "unbash": "^5.0.0",
     "zustand": "^5.0.11"
   },
   "devDependencies": {
