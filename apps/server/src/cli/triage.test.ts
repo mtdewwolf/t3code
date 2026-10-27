@@ -9,7 +9,7 @@ import {
   makePersistedServerRuntimeState,
   persistServerRuntimeState,
 } from "../serverRuntimeState.ts";
-import { describeServerProcess } from "./triage.ts";
+import { describeServerProcess, buildTriageAgentArgs } from "./triage.ts";
 
 it.effect("reports the version the running server recorded, not the CLI's", () =>
   Effect.gen(function* () {
@@ -31,3 +31,23 @@ it.effect("reports the version the running server recorded, not the CLI's", () =
     );
   }).pipe(Effect.provide(NodeServices.layer)),
 );
+
+it("passes the prompt positionally, after the model, for agents without a prompt flag", () => {
+  assert.deepEqual(buildTriageAgentArgs({}, "triage please", "gpt-5"), [
+    "--model",
+    "gpt-5",
+    "triage please",
+  ]);
+  assert.deepEqual(buildTriageAgentArgs({}, "triage please", undefined), ["triage please"]);
+});
+
+it("passes the prompt behind the flag for agents that take one", () => {
+  assert.deepEqual(
+    buildTriageAgentArgs({ promptFlag: "--prompt-interactive" }, "triage please", undefined),
+    ["--prompt-interactive", "triage please"],
+  );
+  assert.deepEqual(
+    buildTriageAgentArgs({ promptFlag: "--prompt-interactive" }, "triage please", "gemini-3-pro"),
+    ["--model", "gemini-3-pro", "--prompt-interactive", "triage please"],
+  );
+});

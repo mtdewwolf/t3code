@@ -30,14 +30,31 @@ import {
 } from "./triagePrompt.ts";
 
 interface TriageAgent {
-  readonly id: "claude" | "codex";
+  readonly id: "claude" | "codex" | "grok" | "antigravity" | "cursor";
   readonly command: string;
   readonly label: string;
+  /** Set when the CLI takes its first prompt behind a flag instead of positionally. */
+  readonly promptFlag?: string;
 }
 
 const TRIAGE_AGENTS: ReadonlyArray<TriageAgent> = [
   { id: "claude", command: "claude", label: "Claude Code" },
   { id: "codex", command: "codex", label: "Codex" },
+  // Grok's own --agent flag names an agent definition, so the prompt stays positional.
+  { id: "grok", command: "grok", label: "Grok Build" },
+  // The installed antigravity binary is the IDE; agy is the standalone CLI.
+  { id: "antigravity", command: "agy", label: "Antigravity", promptFlag: "--prompt-interactive" },
+  // Cursor also installs a bare `agent` alias, which is too easy to confuse with other tools.
+  { id: "cursor", command: "cursor-agent", label: "Cursor" },
+];
+
+export const buildTriageAgentArgs = (
+  agent: { readonly promptFlag?: string },
+  prompt: string,
+  model: string | undefined,
+): ReadonlyArray<string> => [
+  ...(model === undefined ? [] : ["--model", model]),
+  ...(agent.promptFlag === undefined ? [prompt] : [agent.promptFlag, prompt]),
 ];
 
 export class TriageAgentUnavailableError extends Schema.TaggedError<TriageAgentUnavailableError>()(
@@ -54,7 +71,7 @@ export class TriageAgentChoiceRequiredError extends Schema.TaggedError<TriageAge
   {},
 ) {
   override get message(): string {
-    return "Both claude and codex are installed and there is no terminal to ask which to use. Re-run with --agent claude or --agent codex.";
+    return "Multiple triage agents are installed and there is no terminal to ask which to use. Re-run with --agent <agent>.";
   }
 }
 
@@ -129,8 +146,12 @@ const runInteractiveSession = (input: {
     child.once("exit", (code, signal) => resume(Effect.succeed(code ?? (signal === null ? 0 : 1))));
   });
 
-const agentFlag = Flag.Literals("agent", ["claude", "codex"]).pipe(
-  Flag.withDescription("Agent CLI to use. Default: ask when both are installed."),
+const agentIds = TRIAGE_AGENTS.map((agent) => agent.id);
+
+const agentFlag = Flag.Literals("agent", agentIds).pipe(
+  Flag.withDescription(
+    `Agent CLI to use (${agentIds.join(", ")}). Default: ask when more than one is installed.`,
+  ),
   Flag.optional,
 );
 
@@ -145,7 +166,7 @@ export const triageCommand = Command.make("triage", {
   model: modelFlag,
 }).pipe(
   Command.withDescription(
-    "Investigate a T3 Code problem on this machine with claude or codex, and help file a good issue.",
+    "Investigate a T3 Code problem on this machine with a supported coding agent CLI, and help file a good issue.",
   ),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
@@ -224,7 +245,7 @@ export const triageCommand = Command.make("triage", {
       if (selected === undefined) {
         yield* Console.log(
           [
-            "No supported agent CLI (claude, codex) was found on this machine.",
+            `No supported agent CLI (${agentIds.join(", ")}) was found on this machine.`,
             "",
             "The triage prompt and machine context were written to:",
             `  ${promptFilePath}`,
@@ -237,10 +258,10 @@ export const triageCommand = Command.make("triage", {
       }
 
       const model = Option.getOrUndefined(flags.model);
-      const spawnSpec = yield* resolveSpawnCommand(selected.command, [
-        ...(model === undefined ? [] : ["--model", model]),
-        buildTriageLaunchPrompt(promptFilePath),
-      ]);
+      const spawnSpec = yield* resolveSpawnCommand(
+        selected.command,
+        buildTriageAgentArgs(selected, buildTriageLaunchPrompt(promptFilePath), model),
+      );
       yield* Console.log(`Starting ${selected.label}. It will ask what went wrong.\n`);
       const exitCode = yield* runInteractiveSession({ ...spawnSpec, cwd: scratchDir });
       if (exitCode !== 0) {
