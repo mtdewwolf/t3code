@@ -10,9 +10,16 @@ import {
 import { DIFF_THEME_NAMES } from "./diffRendering";
 
 // Highlights has no lexer for these dialects, so they use their base language's.
-setCustomExtension("luau", "lua");
-setCustomExtension("xsl", "xml");
-setCustomExtension("xslt", "xml");
+const DIALECT_BASE_LANGUAGES = new Map([
+  ["luau", "lua"],
+  ["xsl", "xml"],
+  ["xslt", "xml"],
+]);
+for (const [dialect, base] of DIALECT_BASE_LANGUAGES) setCustomExtension(dialect, base);
+
+export function highlightLanguageForFence(language: string): string {
+  return DIALECT_BASE_LANGUAGES.get(language.toLowerCase()) ?? language;
+}
 
 /**
  * Highlights' hand-written WASM lexers tokenize large files 10-40x faster than

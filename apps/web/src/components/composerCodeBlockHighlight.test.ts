@@ -10,7 +10,10 @@ import { getSyntaxHighlighterPromise } from "~/lib/syntaxHighlighting";
 
 import { composerCodeBlockHighlight, tokenizeBlock } from "./composerCodeBlockHighlight";
 
-vi.mock("~/lib/syntaxHighlighting", () => ({ getSyntaxHighlighterPromise: vi.fn() }));
+vi.mock("~/lib/syntaxHighlighting", () => ({
+  getSyntaxHighlighterPromise: vi.fn(),
+  highlightLanguageForFence: (language: string) => language,
+}));
 
 const THEME = "pierre-dark" as DiffThemeName;
 

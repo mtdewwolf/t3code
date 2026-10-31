@@ -11,3 +11,12 @@ describe("resolveHighlightLanguage", () => {
     expect(resolveHighlightLanguage({ path })).toBe(language);
   });
 });
+
+it.each([
+  ["luau", "lua"],
+  ["xsl", "xml"],
+  ["xslt", "xml"],
+  [" LUAU ", "lua"],
+])("resolves the %s fence to %s", (language, expected) => {
+  expect(resolveHighlightLanguage({ language })).toBe(expected);
+});

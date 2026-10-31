@@ -1,7 +1,7 @@
 import { getFiletypeFromFileName } from "@pierre/diffs";
 import { describe, expect, it } from "vite-plus/test";
 
-import { getSyntaxHighlighterPromise } from "./syntaxHighlighting";
+import { getSyntaxHighlighterPromise, highlightLanguageForFence } from "./syntaxHighlighting";
 import { DIFF_THEME_NAMES } from "./diffRendering";
 
 describe("dialect file types", () => {
@@ -11,6 +11,15 @@ describe("dialect file types", () => {
     ["styles/page.xslt", "xml"],
   ])("%s highlights as %s", (path, language) => {
     expect(getFiletypeFromFileName(path)).toBe(language);
+  });
+
+  it.each([
+    ["luau", "lua"],
+    ["XSL", "xml"],
+    ["xslt", "xml"],
+    ["constructor", "constructor"],
+  ])("%s fences highlight as %s", (fence, language) => {
+    expect(highlightLanguageForFence(fence)).toBe(language);
   });
 });
 

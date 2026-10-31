@@ -7,9 +7,12 @@ import {
 import { HIGHLIGHTS_LANGUAGE_IDS } from "./highlights.generated";
 
 // Highlights has no lexer for these dialects, so they use their base language's.
-setCustomExtension("luau", "lua");
-setCustomExtension("xsl", "xml");
-setCustomExtension("xslt", "xml");
+const DIALECT_BASE_LANGUAGES = new Map([
+  ["luau", "lua"],
+  ["xsl", "xml"],
+  ["xslt", "xml"],
+]);
+for (const [dialect, base] of DIALECT_BASE_LANGUAGES) setCustomExtension(dialect, base);
 
 /** The native lexer ID for a @pierre/highlights language name, or 0 (plain text). */
 export function highlightLanguageId(language: string): number {
@@ -21,7 +24,8 @@ export function resolveHighlightLanguage(input: {
   readonly language?: string | null;
   readonly path?: string;
 }): string {
-  const hinted = input.language?.trim().toLowerCase();
+  const rawHint = input.language?.trim().toLowerCase();
+  const hinted = rawHint ? (DIALECT_BASE_LANGUAGES.get(rawHint) ?? rawHint) : undefined;
   if (hinted && highlightLanguageId(hinted) !== 0) return hinted;
   const detected = input.path ? getFiletypeFromFileName(input.path)?.toLowerCase() : undefined;
   if (detected && highlightLanguageId(detected) !== 0) return detected;

@@ -2,6 +2,7 @@ import { Children, isValidElement, type ReactNode } from "react";
 import type { ExtraProps as ReactMarkdownExtraProps } from "react-markdown";
 
 import { fnv1a32, type DiffThemeName } from "../../lib/diffRendering";
+import { highlightLanguageForFence } from "../../lib/syntaxHighlighting";
 
 const CODE_FENCE_LANGUAGE_REGEX = /(?:^|\s)language-([^\s]+)/;
 
@@ -9,7 +10,7 @@ export function extractFenceLanguage(className: string | undefined): string {
   const match = className?.match(CODE_FENCE_LANGUAGE_REGEX);
   const raw = match?.[1] ?? "text";
   // Shiki doesn't bundle a gitignore grammar; ini is a close match.
-  return raw === "gitignore" ? "ini" : raw;
+  return raw === "gitignore" ? "ini" : highlightLanguageForFence(raw);
 }
 
 const FENCE_TITLE_ATTR_REGEX = /(?:^|\s)(?:title|file(?:name)?)=(?:"([^"]+)"|'([^']+)'|(\S+))/i;
